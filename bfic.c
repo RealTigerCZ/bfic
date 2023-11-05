@@ -2,7 +2,7 @@
  * @file bfic.c
  * @author RealTigerCZ
  * @brief Brainf*ck interpreter and compiler main file (arguments handling)
- * @version 0.1
+ * @version 0.1.1
  * @date 2023-11-03
  * 
  * @copyright Copyright (c) 2023
@@ -31,15 +31,22 @@ const size_t DEF_TAPE_SIZE = 1024;
 int main(int argc, char *argv[]) {
     int ret_val;
 
-    FILE *input = stdin;
-    FILE *output = stdout;
-    bool interpret = false;
-    bool debug = false;
-    IMOM imom = IMOM_Default;
-    IMES imes = IMES_Byte;
-    size_t tape_size = 0;
+    Config config = {
+        .cmom = CMOM_Default,
+        .cmes = CMES_Byte,
+        .tape_size = 0,
+        .debug = false,
+        .verbose = false,
+        .count = false,
+        .end_char = 0,
+        .input = stdin,
+        .output = stdout
+    };
+
 
     bool imes_set = false;
+    bool interpret = false;
+
 
     if (argc < 2) {
         printf("[INFO] Reading input from stdin...\n");
@@ -48,7 +55,7 @@ int main(int argc, char *argv[]) {
             if (argv[i][0] == '-') {
                 switch (argv[i][1]) {
                     case 'o':
-                        if (output != stdout) {
+                        if (config.output != stdout) {
                             eprint("Multiple output files specified");
                             safe_return(1);
                         }
@@ -58,7 +65,7 @@ int main(int argc, char *argv[]) {
                             safe_return(1);
                         }
 
-                        if ((output = fopen(argv[i + 1], "w")) == NULL) {
+                        if ((config.output = fopen(argv[i + 1], "w")) == NULL) {
                             eprintf("Failed to open output file: %s, %s", argv[i + 1], strerror(errno));
                             safe_return(1);
                         };
@@ -75,7 +82,7 @@ int main(int argc, char *argv[]) {
                         eprint("Verbose mode not implemented yet");
                         safe_return(0);
 
-                    case 'd': debug = true; break;
+                    case 'd': config.debug = true; break;
 
                     case '-':
                         if (strncmp(argv[i], "--help", 7) == 0) {
@@ -91,7 +98,7 @@ int main(int argc, char *argv[]) {
                         }
 
                         if (strncmp(argv[i], "--debug", 8) == 0) {
-                            debug = true;
+                            config.debug = true;
                             break;
                         }
 
@@ -117,16 +124,16 @@ int main(int argc, char *argv[]) {
                         }
 
                         if (strncmp(argv[i], "--mem-overflow", 14) == 0) {
-                            if (imom != IMOM_Default) {
+                            if (config.cmom != CMOM_Default) {
                                 eprint("Multiple memory overflow modes specified");
                                 safe_return(1);
                             }
 
                             if (argv[i][15] == '=') {
                                 if (strncmp(argv[i] + 16, "wrap", 5) == 0) {
-                                    imom = IMOM_Wrap;
+                                    config.cmom = CMOM_Wrap;
                                 } else if (strncmp(argv[i] + 16, "abort", 6) == 0) {
-                                    imom = IMOM_Abort;
+                                    config.cmom = CMOM_Abort;
                                 } else {
                                     eprintf("Unknown memory overflow mode '%s'", argv[i] + 16);
                                     fprintf(stderr, "[INFO] possible memory overflow modes: wrap, abort\n");
@@ -136,9 +143,9 @@ int main(int argc, char *argv[]) {
                             } else if (i + 1 >= argc) {
                                 i++;
                                 if (strncmp(argv[i], "wrap", 5) == 0) {
-                                    imom = IMOM_Wrap;
+                                    config.cmom = CMOM_Wrap;
                                 } else if (strncmp(argv[i], "abort", 6) == 0) {
-                                    imom = IMOM_Abort;
+                                    config.cmom = CMOM_Abort;
                                 } else {
                                     eprintf("Unknown memory overflow mode '%s'", argv[i]);
                                     fprintf(stderr, "[INFO] possible memory overflow modes: wrap, abort\n");
@@ -157,13 +164,13 @@ int main(int argc, char *argv[]) {
                             // FIXME: does not support "--mem-element-size type"
                             if (argv[i][18] == '=') {
                                 if (strncmp(argv[i] + 20, "byte", 5) == 0) {
-                                    imes = IMES_Byte;
+                                    config.cmes = CMES_Byte;
                                 } else if (strncmp(argv[i] + 20, "word", 5) == 0) {
-                                    imes = IMES_Word;
+                                    config.cmes = CMES_Word;
                                 } else if (strncmp(argv[i] + 20, "dword", 6) == 0) {
-                                    imes = IMES_DWord;
+                                    config.cmes = CMES_DWord;
                                 } else if (strncmp(argv[i] + 20, "qword", 6) == 0) {
-                                    imes = IMES_QWord;
+                                    config.cmes = CMES_QWord;
                                 } else {
                                     eprintf("Unknown memory element size '%s'", argv[i] + 20);
                                     fprintf(stderr, "[INFO] possible memory element sizes: byte, word, dword, qword\n");
@@ -182,12 +189,12 @@ int main(int argc, char *argv[]) {
                         safe_return(1);
                 }
             } else {
-                if (input != stdin) {
+                if (config.input != stdin) {
                     eprint("Multiple input files specified");
                     safe_return(1);
                 }
 
-                if ((input = fopen(argv[i], "r")) == NULL) {
+                if ((config.input = fopen(argv[i], "r")) == NULL) {
                     eprintf("Failed to open input file: %s, %s", argv[i], strerror(errno));
                     safe_return(1);
                 }
@@ -196,16 +203,16 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    tape_size = tape_size ? tape_size : DEF_TAPE_SIZE;
+    config.tape_size = config.tape_size ? config.tape_size : DEF_TAPE_SIZE;
     if (interpret) {
-        safe_return(run_interpreter(tape_size, debug, imom, imes, input, output) != IR_Success);
+        safe_return(run_interpreter(&config) != RC_Success);
     }
 
     eprint("Compiler not implemented yet");
     safe_return(1);
 
 safe_return:
-    if (input != stdin) fclose(input);
-    if (output != stdout) fclose(output);
+    if (config.input != stdin) fclose(config.input);
+    if (config.output != stdout) fclose(config.output);
     return ret_val;
 }

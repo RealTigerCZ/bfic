@@ -2,8 +2,8 @@
  * @file interpreter.c
  * @author RealTigerCZ
  * @brief Brainf*ck interpreter implementation
- * @version 0.1
- * @date 2023-11-03
+ * @version 0.1.1
+ * @date 2023-11-05
  * 
  * @copyright Copyright (c) 2023
  * 
@@ -12,179 +12,179 @@
 /* TODO: Many things
  * - comment code
  * - refactor dumping, maybe executing to be more readable and consistent
- * - try to ditch IMES switches and casting types
+ * - try to ditch CMES switches and casting types
  * - refactor loops (with bytecode)
  */
 
 
 #define BF_INTERPRETER_IMPLEMENTATION
 #include "interpreter.h"
-#include "usefull_macros.h"
 
-long long get_tape_value(void *tape, IMES imes, size_t cursor) {
+
+long long get_tape_value(void *tape, CMES imes, size_t cursor) {
     switch (imes) {
-        case IMES_Byte:  return (long long) ((char *)      tape)[cursor];
-        case IMES_Word:  return (long long) ((short *)     tape)[cursor];
-        case IMES_DWord: return (long long) ((int *)       tape)[cursor];
-        case IMES_QWord: return (long long) ((long long *) tape)[cursor];
+        case CMES_Byte:  return (long long) ((char *)      tape)[cursor];
+        case CMES_Word:  return (long long) ((short *)     tape)[cursor];
+        case CMES_DWord: return (long long) ((int *)       tape)[cursor];
+        case CMES_QWord: return (long long) ((long long *) tape)[cursor];
     }
-    eprint("Unreachable: Unknown IMES value");
+    eprint("Unreachable: Unknown CMES value");
     return 0;
 }
 
-void increment_tape_value(void *tape, IMES imes, size_t cursor) {
+void increment_tape_value(void *tape, CMES imes, size_t cursor) {
     switch (imes) {
-        case IMES_Byte:  ((char *)      tape)[cursor]++; break;
-        case IMES_Word:  ((short *)     tape)[cursor]++; break;
-        case IMES_DWord: ((int *)       tape)[cursor]++; break;
-        case IMES_QWord: ((long long *) tape)[cursor]++; break;
+        case CMES_Byte:  ((char *)      tape)[cursor]++; break;
+        case CMES_Word:  ((short *)     tape)[cursor]++; break;
+        case CMES_DWord: ((int *)       tape)[cursor]++; break;
+        case CMES_QWord: ((long long *) tape)[cursor]++; break;
     }
 }
 
-void decrement_tape_value(void *tape, IMES imes, size_t cursor) {
+void decrement_tape_value(void *tape, CMES imes, size_t cursor) {
     switch (imes) {
-        case IMES_Byte:  ((char *)      tape)[cursor]--; break;
-        case IMES_Word:  ((short *)     tape)[cursor]--; break;
-        case IMES_DWord: ((int *)       tape)[cursor]--; break;
-        case IMES_QWord: ((long long *) tape)[cursor]--; break;
+        case CMES_Byte:  ((char *)      tape)[cursor]--; break;
+        case CMES_Word:  ((short *)     tape)[cursor]--; break;
+        case CMES_DWord: ((int *)       tape)[cursor]--; break;
+        case CMES_QWord: ((long long *) tape)[cursor]--; break;
     }
 }
 
-bool increment_cursor(IMOM imom, size_t *cursor, size_t tape_size) {
-    switch (imom) {
-        case IMOM_Default: (*cursor)++; break;
-        case IMOM_Wrap:    *cursor = (*cursor + 1) % tape_size; break;
-        case IMOM_Abort:   if ((*cursor)++ >= tape_size) return false;
+bool increment_cursor(CMOM cmom, size_t *cursor, size_t tape_size) {
+    switch (cmom) {
+        case CMOM_Default: (*cursor)++; break;
+        case CMOM_Wrap:    *cursor = (*cursor + 1) % tape_size; break;
+        case CMOM_Abort:   if ((*cursor)++ >= tape_size) return false;
     }
     return true;
 }
 
-bool decrement_cursor(IMOM imom, size_t *cursor, size_t tape_size) {
-    switch (imom) {
-        case IMOM_Default: (*cursor)--; break;
-        case IMOM_Wrap:    *cursor = (*cursor + tape_size - 1) % tape_size; break;
-        case IMOM_Abort:   if (*cursor == 0) return false;
+bool decrement_cursor(CMOM cmom, size_t *cursor, size_t tape_size) {
+    switch (cmom) {
+        case CMOM_Default: (*cursor)--; break;
+        case CMOM_Wrap:    *cursor = (*cursor + tape_size - 1) % tape_size; break;
+        case CMOM_Abort:   if (*cursor == 0) return false;
     }
     return true;
 }
 
-Interpreter_Result run_interpreter(size_t tape_size, bool debug, IMOM imom, IMES imes, FILE *input, FILE *output) {
-    if (tape_size == 0) {
+Return_Code run_interpreter(Config *config) {
+    if (config->tape_size == 0) {
         eprint("Tape size cannot be zero");
-        return IR_Error;
+        return RC_Error;
     }
 
-    if (input == NULL) {
+    if (config->input == NULL) {
         eprint("Input stream cannot be NULL");
-        return IR_Error;
+        return RC_Error;
     }
 
-    if (output == NULL) {
+    if (config->output == NULL) {
         eprint("Output stream cannot be NULL");
-        return IR_Error;
+        return RC_Error;
     }
 
-    size_t size_in_bytes = tape_size * (size_t) imes;
+    size_t size_in_bytes = config->tape_size * (size_t) config->cmes;
 
     if (size_in_bytes > BFI_MAX_TAPE_SIZE) {
         eprintf("Tape size too big. Max size: %u bytes (%u GiB) and requested size: %zu bytes (%zu GiB)", 
             BFI_MAX_TAPE_SIZE, BFI_MAX_TAPE_SIZE / 1024 / 1024 / 1024, size_in_bytes, size_in_bytes / 1024 / 1024 / 1024);
-        return IR_Error;
+        return RC_Error;
     }
 
     void *tape = malloc(size_in_bytes);
     if (tape == NULL) {
         eprint("Failed to allocate memory for tape");
-        return IR_Error;
+        return RC_Error;
     }
 
     memset(tape, 0, size_in_bytes);
     size_t cursor = 0;
 
-    execute(tape, tape_size, imom, imes, input, output, &cursor, debug);
-    return IR_Success;
+    execute(tape, config, &cursor);
+    return RC_Success;
 }
 
-Interpreter_Result execute(void *tape, size_t tape_size, IMOM imom, IMES imes, FILE *input, FILE *output, size_t *cursor, bool debug) {
+ Return_Code execute(void *tape, Config *config, size_t *cursor) {
     static long long level = 0;
 
-    int c = fgetc(input);
+    int c = fgetc(config->input);
     while (c != EOF) {
         switch (c) {
-            case '>': if (!increment_cursor(imom, cursor, tape_size)) return IR_Abort; break;
-            case '<': if (!decrement_cursor(imom, cursor, tape_size)) return IR_Abort; break;
-            case '+': increment_tape_value(tape, imes, *cursor); break;
-            case '-': decrement_tape_value(tape, imes, *cursor); break;
+            case '>': if (!increment_cursor(config->cmom, cursor, config->tape_size)) return RC_Abort; break;
+            case '<': if (!decrement_cursor(config->cmom, cursor, config->tape_size)) return RC_Abort; break;
+            case '+': increment_tape_value(tape, config->cmes, *cursor); break;
+            case '-': decrement_tape_value(tape, config->cmes, *cursor); break;
             case '.':
-                long long   value = get_tape_value(tape, imes, *cursor); 
-                if (imes == IMES_Byte) fputc((char) value, output);
-                else fprintf(output, "%llu (0x%llX)\n", value, value);
+                long long value = get_tape_value(tape, config->cmes, *cursor);
+                if (config->cmes == CMES_Byte) fputc((char) value, config->output);
+                else fprintf(config->output, "%llu (0x%llX)\n", value, value);
                 break;
             case ',': {
                 long long value = 0;
-                for (int i = 0; i < (int) imes; i++) {
-                    int ch = fgetc(input);
+                for (int i = 0; i < (int) config->cmes; i++) {
+                    int ch = fgetc(config->input);
                     if (ch == EOF) {
                         eprint("Unexpected end of file when loading value");
-                        return IR_Abort;
+                        return RC_Abort;
                     }
                     value <<= 8;
                     value += ch;
                 }
-                switch (imes) {
-                    case IMES_Byte:  ((char *)      tape)[*cursor] = (char)      value; break;
-                    case IMES_Word:  ((short *)     tape)[*cursor] = (short)     value; break;
-                    case IMES_DWord: ((int *)       tape)[*cursor] = (int)       value; break;
-                    case IMES_QWord: ((long long *) tape)[*cursor] = (long long) value; break;
+                switch (config->cmes) {
+                    case CMES_Byte:  ((char *)      tape)[*cursor] = (char)      value; break;
+                    case CMES_Word:  ((short *)     tape)[*cursor] = (short)     value; break;
+                    case CMES_DWord: ((int *)       tape)[*cursor] = (int)       value; break;
+                    case CMES_QWord: ((long long *) tape)[*cursor] = (long long) value; break;
                 }
             }
             break;
             case '[': 
-                if (get_tape_value(tape, imes, *cursor) == 0) {
-                    c = fgetc(input);
+                if (get_tape_value(tape, config->cmes, *cursor) == 0) {
+                    c = fgetc(config->input);
                     while (c != ']') {
                         if (c == EOF) {
                             eprint("Unexpected end of file in loop");
-                            return IR_Abort;
+                            return RC_Abort;
                         }
-                        c = fgetc(input);
+                        c = fgetc(config->input);
                     }
                 } else {
-                    size_t position = ftell(input);
+                    size_t position = ftell(config->input);
                     level++;
-                    Interpreter_Result err = execute(tape, tape_size, imom, imes, input, output, cursor, debug);
-                    if (err != IR_Success) return err;
-                    fseek(input, position, SEEK_SET);
-                    ungetc('[', input);
+                    Return_Code err = execute(tape, config, cursor);
+                    if (err != RC_Success) return err;
+                    fseek(config->input, position, SEEK_SET);
+                    ungetc('[', config->input);
                 }
                 break;
             case ']':
                 if (level == 0) {
                     eprint("Unexpected end of loop");
-                    return IR_Abort;
+                    return RC_Abort;
                 }
 
                 level--;
-                return IR_Success;
+                return RC_Success;
             case '#':
-                if (debug) {
-                    dump_tape(tape, imes, tape_size, *cursor, output);
+                if (config->debug) {
+                    dump_tape(tape, config->cmes, config->tape_size, *cursor, config->output);
                 }
                 break;
         }
-        c = fgetc(input);
+        c = fgetc(config->input);
     }
     
     if (level != 0) {
         eprint("Unexpected end of file -- missing ']'");
-        return IR_Abort;
+        return RC_Abort;
     }
 
-    return IR_Success;
+    return RC_Success;
 }
 
 // CHECK: printing end of tape (end is == size - 1)
-void dump_tape(void *tape, IMES imes, size_t size, size_t cursor, FILE *output) {
+void dump_tape(void *tape, CMES imes, size_t size, size_t cursor, FILE *output) {
     size_t start = cursor < BFI_DUMP_RADIUS ? 0 : cursor - BFI_DUMP_RADIUS;
     size_t end = cursor + BFI_DUMP_RADIUS > size ? size : cursor + BFI_DUMP_RADIUS;
 
